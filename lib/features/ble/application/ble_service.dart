@@ -14,11 +14,12 @@ class BleService {
   StreamSubscription<ConnectionStateUpdate>? _connection;
   StreamSubscription<Uint8List>? _notificationSub;
   Timer? _pollTimer;
-
+  DeviceConnectionState? _conState;
   // Контроллер для потока TelemetryData
   final _telemetryController = StreamController<TelemetryData>.broadcast();
 
   BleService(this._repo);
+  DeviceConnectionState? get conState => _conState;
 
   /// Геттер для статуса адаптера BLE
   Stream<BleStatus> get statusStream => _repo.statusStream;
@@ -45,9 +46,9 @@ class BleService {
       await _repo.requestMtu(deviceId, 250);
     } catch (_) {}
     await _connection?.cancel();
-    _connection = _repo
-        .connectionStateStream(deviceId)
-        .listen((_) {}, onError: (_) {});
+    _connection = _repo.connectionStateStream(deviceId).listen((event) {
+      _conState = event.connectionState;
+    }, onError: (_) {});
   }
 
   /// Начало автоматического опроса RPM и скорости
@@ -69,18 +70,38 @@ class BleService {
     });
   }
 
-  /// Обработка входящих данных от адаптера
   void _onDataReceived(Uint8List data) {
-    final raw = utf8.decode(data, allowMalformed: true).trim().split(' ');
+    // 1️⃣ Декодируем байты и обрезаем пробелы/переводы строки
+    final message = utf8.decode(data, allowMalformed: true).trim();
+    print(message);
+    // 2️⃣ Отсекаем всё, что не начинается с "41 " (это ответ OBD-II на запрос 01XX)
+    if (!message.startsWith('41 ')) {
+      // Можно также дополнительно убрать эхо-команду ("01XX…") и NO DATA:
+      // if (message.startsWith('01') || message.contains('NO DATA')) return;
+      return;
+    }
+
+    // 3️⃣ Разбиваем на токены и проверяем, что их как минимум 4: ["41", "0C", "1A", "F8"]
+    final raw = message.split(' ');
+    if (raw.length < 4) return;
+
+    // 4️⃣ Парсим PID и данные
+    final pid = raw[1];
+    final a = int.tryParse(raw[2], radix: 16);
+    final b = int.tryParse(raw[3], radix: 16);
+    if (a == null || b == null) return;
+
     int? rpm;
     int? speed;
-    if (raw.length >= 4 && raw[0] == '41') {
-      final pid = raw[1];
-      final a = int.parse(raw[2], radix: 16);
-      final b = int.parse(raw[3], radix: 16);
-      if (pid == '0C') rpm = ((a << 8) + b) ~/ 4;
-      if (pid == '0D') speed = a;
+    if (pid == '0C') {
+      rpm = ((a << 8) + b) ~/ 4; // (A*256 + B) / 4
+    } else if (pid == '0D') {
+      speed = a; // A = скорость в км/ч
+    } else {
+      return; // не тот PID — игнорируем
     }
+
+    // 5️⃣ Эмитим только если есть что отдавать
     _telemetryController.add(TelemetryData(rpm: rpm, speed: speed));
   }
 

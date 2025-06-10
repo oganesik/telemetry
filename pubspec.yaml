@@ -36,8 +36,9 @@ dependencies:
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.6.1
   flutter_reactive_ble: ^5.4.0
-
-
+  syncfusion_flutter_gauges: 29.2.5
+  socket_io_client: ^3.1.2
+  http: ^0.13.5
 dev_dependencies:
   flutter_test:
     sdk: flutter

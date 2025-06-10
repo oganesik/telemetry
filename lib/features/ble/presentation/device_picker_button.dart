@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:telemetry/features/ble/ble_connection_provider.dart';
 
 import '../providers.dart';
 
@@ -14,7 +15,6 @@ class DevicePickerButton extends ConsumerWidget {
     final bleStatus =
         ref.watch(bleStatusProvider).asData?.value ?? BleStatus.unknown;
     final isReady = bleStatus == BleStatus.ready;
-    print(ref.watch(bleStatusProvider).asData?.value);
 
     return SizedBox(
       width: size,
@@ -46,18 +46,23 @@ class DevicePickerButton extends ConsumerWidget {
                 .watch(scanResultsProvider)
                 .when(
                   data: (devices) {
-                    if (devices.isEmpty) {
+                    // Оставляем только устройства с непустым именем
+                    final namedDevices =
+                        devices.where((d) => d.name.isNotEmpty).toList();
+
+                    if (namedDevices.isEmpty) {
                       return const Padding(
                         padding: EdgeInsets.all(24),
                         child: Center(child: Text('Поиск устройств...')),
                       );
                     }
+
                     return ListView.separated(
-                      itemCount: devices.length,
+                      itemCount: namedDevices.length,
                       separatorBuilder: (_, __) => const Divider(),
                       itemBuilder: (_, i) {
-                        final d = devices[i];
-                        final name = d.name.isNotEmpty ? d.name : d.id;
+                        final d = namedDevices[i];
+                        final name = d.name; // уже не пустое
                         return ListTile(
                           title: Text(name),
                           subtitle: Text(d.id),
@@ -65,15 +70,18 @@ class DevicePickerButton extends ConsumerWidget {
                             Navigator.of(ctx).pop();
                             try {
                               await ref
-                                  .read(bleServiceProvider)
+                                  .read(bleConnectionProvider.notifier)
                                   .connectToDevice(d.id);
+                              // await ref
+                              //     .read(bleConnectionProvider.notifier)
+                              //     .initElm();
                               ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Подключено к \$name')),
+                                SnackBar(content: Text('Подключено к $name')),
                               );
                             } catch (e) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text('Ошибка подключения: \$e'),
+                                  content: Text('Ошибка подключения: $e'),
                                 ),
                               );
                             }
@@ -87,7 +95,7 @@ class DevicePickerButton extends ConsumerWidget {
                   error:
                       (e, _) => Padding(
                         padding: const EdgeInsets.all(24),
-                        child: Center(child: Text('Ошибка: \$e')),
+                        child: Center(child: Text('Ошибка: $e')),
                       ),
                 );
           },

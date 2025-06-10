@@ -17,15 +17,7 @@ class FlutterReactiveBleImpl implements BleRepository {
 
   @override
   Stream<ConnectionStateUpdate> connectionStateStream(String deviceId) {
-    return _ble.connectToDevice(
-      id: deviceId,
-      servicesWithCharacteristicsToDiscover: {
-        Constants.obdServiceUuid: [
-          Constants.obdRxCharacteristicUuid,
-          Constants.obdTxCharacteristicUuid,
-        ],
-      },
-    );
+    return _ble.connectToDevice(id: deviceId);
   }
 
   @override

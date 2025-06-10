@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_reactive_ble/flutter_reactive_ble.dart';
+import 'package:http/http.dart' as http;
+import 'package:telemetry/core/models/socket_io_state.dart';
 
 import 'package:telemetry/core/models/telemetry_data.dart';
+import 'package:telemetry/core/providires/socket_notifier.dart';
 import 'package:telemetry/features/ble/application/ble_service.dart';
 import 'package:telemetry/features/ble/domain/ble_repository.dart';
 import 'package:telemetry/features/ble/infrastructure/flutter_reactive_ble_impl.dart';
@@ -29,35 +33,6 @@ final bleStatusProvider = StreamProvider<BleStatus>((ref) {
   return ref.watch(bleServiceProvider).statusStream;
 });
 
-final telemetryProvider = StreamProvider<TelemetryData>((ref) {
-  final svc = ref.watch(bleServiceProvider);
-  // Здесь нужно знать deviceId: допустим, в BleService оно уже установлено
-  svc.startTelemetry();
-
-  return svc.telemetryStream;
-});
-
-/// Провайдер состояния GATT-соединения
-/// Сначала выдаёт disconnected, затем обновляет по реальным событиям
-final connectionStateProvider = StreamProvider<DeviceConnectionState>((ref) {
-  final service = ref.watch(bleServiceProvider);
-  final controller = StreamController<DeviceConnectionState>();
-  // Начальное состояние
-  controller.add(DeviceConnectionState.disconnected);
-  // Подписка на реальные обновления
-  final sub = service.connectionStream
-      .map((update) => update.connectionState)
-      .listen(
-        (state) => controller.add(state),
-        onError: (e, st) => controller.addError(e, st),
-      );
-  ref.onDispose(() {
-    sub.cancel();
-    controller.close();
-  });
-  return controller.stream;
-});
-
 /// Провайдер списка найденных устройств OBD-II
 final scanResultsProvider = StreamProvider<List<DiscoveredDevice>>((ref) {
   final ble = ref.watch(flutterReactiveBleProvider);
@@ -77,3 +52,27 @@ final scanResultsProvider = StreamProvider<List<DiscoveredDevice>>((ref) {
   });
   return controller.stream;
 });
+
+/// 1. Провайдер для SocketNotifier + его состояния
+final socketNotifierProvider =
+    StateNotifierProvider<SocketNotifier, SocketState>((ref) {
+      // Укажите ваш URL сервера без слэша на конце
+      const serverUrl = 'http://socialsquad.ru:3000';
+      return SocketNotifier(serverUrl: serverUrl);
+    });
+
+/// 2. (Опционально) FutureProvider для получения roomId по HTTP
+final roomIdProvider = FutureProvider<String>((ref) async {
+  // Замените на ваш HTTP-клиент, здесь для примера – http из пакета http
+  final uri = Uri.parse('http://socialsquad.ru:3000/api/createRoom');
+  final response = await ref.read(httpClientProvider).get(uri);
+  if (response.statusCode == 200) {
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    return decoded['roomId'] as String;
+  } else {
+    throw Exception('Не удалось получить roomId: ${response.statusCode}');
+  }
+});
+
+/// Простейший httpClientProvider для http-пакета
+final httpClientProvider = Provider((ref) => http.Client());
